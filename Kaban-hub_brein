@@ -1,0 +1,1775 @@
+-- ============================================
+-- KABAN HUB v10.0 — PREMIUM EDITION
+-- Basic: KabanTest
+-- Premium: KabanPrem
+-- ============================================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+local BASIC_KEY = "KabanTest"
+local PREMIUM_KEY = "KabanPrem"
+local USER_TIER = "basic"
+local SCRIPT_NAME = "KABAN HUB v10.0"
+
+local config = {
+    -- BASIC
+    ESP = false,
+    Speed = false,
+    Jump = false,
+    Fly = false,
+    Fullbright = false,
+    NoFog = false,
+    Stretch43 = false,
+    SpeedValue = 30,
+    JumpPower = 80,
+    HitboxSize = 3,
+    FlyCooldown = 0.14,
+    FlyPower = 40,
+    FPS = 60,
+    
+    -- PREMIUM
+    AimBot = false,
+    Pull = false,
+    AutoAttack = false,
+    XRay = false,
+    AutoFarm = false,
+    AutoSteal = false,
+    BrainrotESP = false,
+    TrapESP = false,
+    PlayerTracker = false,
+    Crosshair = false,
+    KillFeed = false,
+    AntiFling = false,
+    ChatSpam = false,
+    
+    AimFOV = 120,
+    AimSmooth = 0.3,
+    ShowFOVCircle = true
+}
+
+-- ============================================
+-- ANTI-DETECT
+-- ============================================
+local function ApplyAntiDetect()
+    local oldPrint = print
+    local oldWarn = warn
+    _G.print = function(...)
+        local text = tostring(({...})[1] or "")
+        if text:find("KABAN") or text:find("kaban") then return end
+        oldPrint(...)
+    end
+    _G.warn = function(...)
+        local text = tostring(({...})[1] or "")
+        if text:find("KABAN") or text:find("kaban") then return end
+        oldWarn(...)
+    end
+    pcall(function()
+        if game.GetObjects then
+            game.GetObjects = function() return {} end
+        end
+    end)
+end
+ApplyAntiDetect()
+
+local function ProtectGui(gui)
+    pcall(function()
+        if syn and syn.protect_gui then syn.protect_gui(gui) end
+        if protect_gui then protect_gui(gui) end
+    end)
+    pcall(function()
+        gui.Name = "CoreGui_" .. tostring(math.random(100000, 999999))
+    end)
+end
+
+local Connections = {}
+local function Track(name, conn)
+    if Connections[name] then pcall(function() Connections[name]:Disconnect() end) end
+    Connections[name] = conn
+    return conn
+end
+local function Untrack(name)
+    if Connections[name] then
+        pcall(function() Connections[name]:Disconnect() end)
+        Connections[name] = nil
+    end
+end
+local function DisconnectAll()
+    for _, conn in pairs(Connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    Connections = {}
+end
+
+local snowflakes = {}
+local isMinimized = false
+local espObjects = {}
+local brainrotEspObjects = {}
+local trapEspObjects = {}
+local fovCircle = nil
+local lineGui = nil
+local hudGui = nil
+local crosshairGui = nil
+local trackerArrow = nil
+local killFeedGui = nil
+local originals = {}
+
+-- ============================================
+-- ОПРЕДЕЛЕНИЕ BRAINROT
+-- ============================================
+local BRAINROT_KEYWORDS = {
+    "brainrot", "brain", "rot",
+    "tralalero", "tralala", "bombardiro", "bombombini",
+    "tung", "sahur", "tungtung", "patapim", "brr", "skibidi",
+    "crocodilo", "crocodile", "cappuccino", "assassino",
+    "lirili", "larila", "girafa", "celeste",
+    "boneca", "ambalabu", "chimpanzini", "glorbo"
+}
+
+local function IsBrainrot(obj)
+    if not obj then return false end
+    local n = obj.Name:lower()
+    for _, kw in ipairs(BRAINROT_KEYWORDS) do
+        if n:find(kw, 1, true) then return true end
+    end
+    return false
+end
+
+-- ============================================
+-- ПОИСК ЦЕЛИ
+-- ============================================
+local function GetClosestTarget(part)
+    part = part or "Head"
+    local cam = Workspace.CurrentCamera
+    if not cam then return nil end
+    local center = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+    local bestTarget = nil
+    local bestDist = config.AimFOV
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                local targetPart = player.Character:FindFirstChild(part) or player.Character:FindFirstChild("HumanoidRootPart")
+                if targetPart then
+                    local screenPos, onScreen = cam:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                        if dist < bestDist then
+                            bestDist = dist
+                            bestTarget = {player = player, part = targetPart}
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestTarget
+end
+
+-- ============================================
+-- FOV КРУГ
+-- ============================================
+local function CreateFOVCircle()
+    if fovCircle then fovCircle.gui:Destroy() end
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "RbxFov_" .. tostring(math.random(100000, 999999))
+    gui.Parent = CoreGui
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    ProtectGui(gui)
+
+    local circle = Instance.new("Frame")
+    circle.AnchorPoint = Vector2.new(0.5, 0.5)
+    circle.Position = UDim2.new(0.5, 0, 0.5, 0)
+    circle.Size = UDim2.new(0, config.AimFOV * 2, 0, config.AimFOV * 2)
+    circle.BackgroundTransparency = 1
+    circle.BorderSizePixel = 0
+    circle.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(1, 0)
+    corner.Parent = circle
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(150, 0, 255)
+    stroke.Thickness = 2
+    stroke.Transparency = 0.3
+    stroke.Parent = circle
+
+    fovCircle = {gui = gui, frame = circle}
+end
+
+local function UpdateFOVCircle()
+    if fovCircle then
+        fovCircle.frame.Size = UDim2.new(0, config.AimFOV * 2, 0, config.AimFOV * 2)
+        fovCircle.frame.Visible = config.ShowFOVCircle and (USER_TIER == "premium")
+    end
+end
+
+-- ============================================
+-- ESP
+-- ============================================
+local function BuildESP(player)
+    if player == LocalPlayer then return end
+    local char = player.Character
+    if not char then return end
+    if espObjects[player] then
+        pcall(function() espObjects[player]:Destroy() end)
+        espObjects[player] = nil
+    end
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "KabanESP"
+    hl.FillColor = Color3.fromRGB(255, 0, 0)
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.5
+    hl.Adornee = char
+    hl.Parent = char
+    espObjects[player] = hl
+end
+
+local function RemoveESP(player)
+    if espObjects[player] then
+        pcall(function() espObjects[player]:Destroy() end)
+        espObjects[player] = nil
+    end
+end
+
+local function ToggleESP(state)
+    config.ESP = state
+    if state then
+        for _, player in ipairs(Players:GetPlayers()) do
+            BuildESP(player)
+        end
+    else
+        for player, _ in pairs(espObjects) do
+            RemoveESP(player)
+        end
+    end
+end
+
+-- ============================================
+-- AIMBOT (PREMIUM)
+-- ============================================
+local aimConn = nil
+local function ToggleAimBot(state)
+    if USER_TIER ~= "premium" then return end
+    config.AimBot = state
+    if state then
+        if aimConn then aimConn:Disconnect() end
+        aimConn = RunService.RenderStepped:Connect(function()
+            if not config.AimBot then return end
+            local target = GetClosestTarget("Head")
+            if target then
+                local cam = Workspace.CurrentCamera
+                if cam then
+                    local desired = CFrame.new(cam.CFrame.Position, target.part.Position)
+                    cam.CFrame = cam.CFrame:Lerp(desired, 1 - config.AimSmooth)
+                end
+            end
+        end)
+    else
+        if aimConn then aimConn:Disconnect(); aimConn = nil end
+    end
+end
+
+-- ============================================
+-- ПРИТЯН (PREMIUM)
+-- ============================================
+local pullConn = nil
+local function TogglePull(state)
+    if USER_TIER ~= "premium" then return end
+    config.Pull = state
+    if state then
+        if pullConn then pullConn:Disconnect() end
+        pullConn = RunService.RenderStepped:Connect(function()
+            if not config.Pull then return end
+            local target = GetClosestTarget("HumanoidRootPart")
+            if not target then return end
+            local myChar = LocalPlayer.Character
+            if not myChar then return end
+            local myHrp = myChar:FindFirstChild("HumanoidRootPart")
+            local myHum = myChar:FindFirstChildOfClass("Humanoid")
+            if not myHrp or not myHum then return end
+            local targetPos = target.part.Position
+            local myPos = myHrp.Position
+            local dir = targetPos - myPos
+            if dir.Magnitude > 3 then
+                myHum:MoveTo(myPos + dir.Unit * 0.4)
+            end
+        end)
+    else
+        if pullConn then pullConn:Disconnect(); pullConn = nil end
+    end
+end
+
+-- ============================================
+-- ФЛЮ (бесконечный прыжок)
+-- ============================================
+local infJumpConn = nil
+local lastJumpTime = 0
+
+local function ToggleInfiniteJump(state)
+    config.Fly = state
+    if state then
+        if infJumpConn then infJumpConn:Disconnect() end
+        infJumpConn = UserInputService.JumpRequest:Connect(function()
+            if not config.Fly then return end
+            local now = tick()
+            if now - lastJumpTime < config.FlyCooldown then return end
+            lastJumpTime = now
+            local char = LocalPlayer.Character
+            if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not hum then return end
+            local st = hum:GetState()
+            hum.Jump = true
+            if st == Enum.HumanoidStateType.Freefall then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local vel = hrp.AssemblyLinearVelocity
+                    hrp.AssemblyLinearVelocity = Vector3.new(vel.X, config.FlyPower, vel.Z)
+                end
+            end
+        end)
+    else
+        if infJumpConn then infJumpConn:Disconnect(); infJumpConn = nil end
+    end
+end
+
+-- ============================================
+-- АТАКА (PREMIUM)
+-- ============================================
+local attackConn = nil
+local function ToggleAutoAttack(state)
+    if USER_TIER ~= "premium" then return end
+    config.AutoAttack = state
+    if state then
+        if attackConn then attackConn:Disconnect() end
+        attackConn = RunService.Heartbeat:Connect(function()
+            if not config.AutoAttack then return end
+            local myChar = LocalPlayer.Character
+            if not myChar then return end
+            local tool = myChar:FindFirstChildOfClass("Tool")
+            if tool then
+                pcall(function() tool:Activate() end)
+            end
+        end)
+    else
+        if attackConn then attackConn:Disconnect(); attackConn = nil end
+    end
+end
+
+-- ============================================
+-- X-RAY (PREMIUM)
+-- ============================================
+local xrayParts = setmetatable({}, {__mode = "k"})
+local xrayConn = nil
+
+local function ApplyXRay(state)
+    if USER_TIER ~= "premium" then return end
+    config.XRay = state
+    if state then
+        local playerParts = {}
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl.Character then
+                for _, part in ipairs(pl.Character:GetDescendants()) do
+                    playerParts[part] = true
+                end
+            end
+        end
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and not playerParts[obj] then
+                if xrayParts[obj] == nil then
+                    xrayParts[obj] = obj.Transparency
+                end
+                obj.Transparency = 0.7
+            end
+        end
+        if xrayConn then xrayConn:Disconnect() end
+        xrayConn = Workspace.DescendantAdded:Connect(function(obj)
+            if not config.XRay then return end
+            if obj:IsA("BasePart") then
+                for _, pl in ipairs(Players:GetPlayers()) do
+                    if pl.Character and obj:IsDescendantOf(pl.Character) then return end
+                end
+                xrayParts[obj] = obj.Transparency
+                obj.Transparency = 0.7
+            end
+        end)
+    else
+        for obj, orig in pairs(xrayParts) do
+            pcall(function()
+                if obj and obj.Parent then obj.Transparency = orig end
+            end)
+        end
+        xrayParts = setmetatable({}, {__mode = "k"})
+        if xrayConn then xrayConn:Disconnect(); xrayConn = nil end
+    end
+end
+
+-- ============================================
+-- BRAINROT ESP (PREMIUM)
+-- ============================================
+local function ToggleBrainrotESP(state)
+    if USER_TIER ~= "premium" then return end
+    config.BrainrotESP = state
+    if state then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if (obj:IsA("BasePart") or obj:IsA("Model")) and IsBrainrot(obj) then
+                if not brainrotEspObjects[obj] then
+                    local hl = Instance.new("Highlight")
+                    hl.Name = "KabanBrainrot"
+                    hl.FillColor = Color3.fromRGB(255, 220, 100)
+                    hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+                    hl.FillTransparency = 0.5
+                    hl.Adornee = obj
+                    hl.Parent = obj
+                    brainrotEspObjects[obj] = hl
+                end
+            end
+        end
+    else
+        for obj, hl in pairs(brainrotEspObjects) do
+            pcall(function() hl:Destroy() end)
+        end
+        brainrotEspObjects = {}
+    end
+end
+
+-- ============================================
+-- TRAP ESP (PREMIUM)
+-- ============================================
+local function ToggleTrapESP(state)
+    if USER_TIER ~= "premium" then return end
+    config.TrapESP = state
+    if state then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local n = obj.Name:lower()
+                if n:find("trap") or n:find("bear") or n:find("mine") or n:find("spike") then
+                    if not trapEspObjects[obj] then
+                        local hl = Instance.new("Highlight")
+                        hl.Name = "KabanTrap"
+                        hl.FillColor = Color3.fromRGB(255, 100, 0)
+                        hl.OutlineColor = Color3.fromRGB(255, 255, 0)
+                        hl.FillTransparency = 0.5
+                        hl.Adornee = obj
+                        hl.Parent = obj
+                        trapEspObjects[obj] = hl
+                    end
+                end
+            end
+        end
+    else
+        for obj, hl in pairs(trapEspObjects) do
+            pcall(function() hl:Destroy() end)
+        end
+        trapEspObjects = {}
+    end
+end
+
+-- ============================================
+-- PLAYER TRACKER (PREMIUM)
+-- ============================================
+local trackerConn = nil
+local function TogglePlayerTracker(state)
+    if USER_TIER ~= "premium" then return end
+    config.PlayerTracker = state
+    if state then
+        if not trackerArrow then
+            local gui = Instance.new("ScreenGui")
+            gui.Name = "KabanTracker"
+            gui.Parent = CoreGui
+            gui.ResetOnSpawn = false
+            ProtectGui(gui)
+            local arrow = Instance.new("TextLabel")
+            arrow.Size = UDim2.new(0, 60, 0, 60)
+            arrow.BackgroundTransparency = 1
+            arrow.Text = "➤"
+            arrow.TextColor3 = Color3.fromRGB(255, 0, 0)
+            arrow.TextSize = 50
+            arrow.Font = Enum.Font.GothamBold
+            arrow.Parent = gui
+            trackerArrow = {gui = gui, label = arrow}
+        end
+        trackerArrow.gui.Enabled = true
+        if trackerConn then trackerConn:Disconnect() end
+        trackerConn = RunService.RenderStepped:Connect(function()
+            if not config.PlayerTracker or not trackerArrow then return end
+            -- Ищем ближайшего игрока
+            local nearest = nil
+            local nearestDist = math.huge
+            local myChar = LocalPlayer.Character
+            if not myChar then return end
+            local myHrp = myChar:FindFirstChild("HumanoidRootPart")
+            if not myHrp then return end
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character then
+                    local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local d = (hrp.Position - myHrp.Position).Magnitude
+                        if d < nearestDist then
+                            nearestDist = d
+                            nearest = hrp
+                        end
+                    end
+                end
+            end
+            if not nearest then trackerArrow.label.Visible = false return end
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            local sp, onScreen = cam:WorldToViewportPoint(nearest.Position)
+            if onScreen then
+                trackerArrow.label.Visible = true
+                trackerArrow.label.Position = UDim2.new(0, sp.X - 30, 0, sp.Y - 30)
+            else
+                trackerArrow.label.Visible = false
+            end
+        end)
+    else
+        if trackerArrow then trackerArrow.gui.Enabled = false end
+        if trackerConn then trackerConn:Disconnect(); trackerConn = nil end
+    end
+end
+
+-- ============================================
+-- CROSSHAIR (PREMIUM)
+-- ============================================
+local function ToggleCrosshair(state)
+    if USER_TIER ~= "premium" then return end
+    config.Crosshair = state
+    if state then
+        if crosshairGui then crosshairGui:Destroy() end
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "KabanCrosshair"
+        gui.Parent = CoreGui
+        gui.ResetOnSpawn = false
+        ProtectGui(gui)
+        local dot = Instance.new("Frame")
+        dot.Size = UDim2.new(0, 8, 0, 8)
+        dot.AnchorPoint = Vector2.new(0.5, 0.5)
+        dot.Position = UDim2.new(0.5, 0, 0.5, 0)
+        dot.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        dot.BorderSizePixel = 0
+        dot.Parent = gui
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(1, 0)
+        c.Parent = dot
+        crosshairGui = gui
+    else
+        if crosshairGui then crosshairGui:Destroy(); crosshairGui = nil end
+    end
+end
+
+-- ============================================
+-- KILL FEED (PREMIUM)
+-- ============================================
+local killFeedConn = nil
+local function ToggleKillFeed(state)
+    if USER_TIER ~= "premium" then return end
+    config.KillFeed = state
+    if state then
+        if killFeedGui then killFeedGui:Destroy() end
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "KabanKillFeed"
+        gui.Parent = CoreGui
+        gui.ResetOnSpawn = false
+        ProtectGui(gui)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 300, 0, 200)
+        frame.Position = UDim2.new(1, -310, 0, 100)
+        frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        frame.BackgroundTransparency = 0.5
+        frame.BorderSizePixel = 0
+        frame.Parent = gui
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 8)
+        c.Parent = frame
+        local list = Instance.new("UIListLayout")
+        list.Padding = UDim.new(0, 4)
+        list.Parent = frame
+        killFeedGui = {gui = gui, frame = frame}
+    else
+        if killFeedGui then killFeedGui.gui:Destroy(); killFeedGui = nil end
+    end
+end
+
+Track("killfeed_hook", RunService.Heartbeat:Connect(function()
+    if not config.KillFeed or not killFeedGui then return end
+    for _, pl in ipairs(Players:GetPlayers()) do
+        local char = pl.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health <= 0 and not pl:GetAttribute("KABAN_DEAD_LOGGED") then
+                pl:SetAttribute("KABAN_DEAD_LOGGED", true)
+                local lbl = Instance.new("TextLabel")
+                lbl.Size = UDim2.new(1, 0, 0, 20)
+                lbl.BackgroundTransparency = 1
+                lbl.Text = "💀 " .. pl.Name
+                lbl.TextColor3 = Color3.fromRGB(255, 100, 100)
+                lbl.TextSize = 12
+                lbl.Font = Enum.Font.GothamBold
+                lbl.TextXAlignment = Enum.TextXAlignment.Left
+                lbl.Parent = killFeedGui.frame
+                task.delay(5, function()
+                    if lbl and lbl.Parent then lbl:Destroy() end
+                end)
+            elseif hum and hum.Health > 0 then
+                pl:SetAttribute("KABAN_DEAD_LOGGED", false)
+            end
+        end
+    end
+end))
+
+-- ============================================
+-- ANTI-FLING (PREMIUM)
+-- ============================================
+local antiflingConn = nil
+local function ToggleAntiFling(state)
+    if USER_TIER ~= "premium" then return end
+    config.AntiFling = state
+    if state then
+        if antiflingConn then antiflingConn:Disconnect() end
+        antiflingConn = RunService.Heartbeat:Connect(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+            local vel = hrp.AssemblyLinearVelocity
+            if vel.Magnitude > 100 then
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            end
+        end)
+    else
+        if antiflingConn then antiflingConn:Disconnect(); antiflingConn = nil end
+    end
+end
+
+-- ============================================
+-- SPEED / JUMP
+-- ============================================
+local speedConn
+local function ToggleSpeed(state)
+    config.Speed = state
+    if state then
+        if speedConn then speedConn:Disconnect() end
+        local multiplier = (USER_TIER == "premium") and 2 or 1
+        speedConn = RunService.Heartbeat:Connect(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then 
+                hum.WalkSpeed = math.clamp(config.SpeedValue * multiplier, 16, 100)
+            end
+        end)
+    else
+        if speedConn then speedConn:Disconnect(); speedConn = nil end
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = 16 end
+        end
+    end
+end
+
+local jumpConn
+local function ToggleJump(state)
+    config.Jump = state
+    if state then
+        if jumpConn then jumpConn:Disconnect() end
+        jumpConn = RunService.Heartbeat:Connect(function()
+            local char = LocalPlayer.Character
+            if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.UseJumpPower = true
+                hum.JumpPower = config.JumpPower
+            end
+        end)
+    else
+        if jumpConn then jumpConn:Disconnect(); jumpConn = nil end
+        local char = LocalPlayer.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.JumpPower = 50 end
+        end
+    end
+end
+
+-- ============================================
+-- FULLBRIGHT / NO FOG
+-- ============================================
+local function SaveLighting()
+    if originals.lighting then return end
+    originals.lighting = {
+        Brightness = Lighting.Brightness,
+        ClockTime = Lighting.ClockTime,
+        FogEnd = Lighting.FogEnd,
+        FogStart = Lighting.FogStart,
+        GlobalShadows = Lighting.GlobalShadows,
+        Ambient = Lighting.Ambient
+    }
+end
+
+local function RestoreLighting()
+    if not originals.lighting then return end
+    pcall(function()
+        Lighting.Brightness = originals.lighting.Brightness
+        Lighting.ClockTime = originals.lighting.ClockTime
+        Lighting.FogEnd = originals.lighting.FogEnd
+        Lighting.FogStart = originals.lighting.FogStart
+        Lighting.GlobalShadows = originals.lighting.GlobalShadows
+        Lighting.Ambient = originals.lighting.Ambient
+    end)
+    originals.lighting = nil
+end
+
+local function ToggleFullbright(state)
+    config.Fullbright = state
+    if state then
+        SaveLighting()
+        Lighting.Brightness = 5
+        Lighting.ClockTime = 12
+        Lighting.GlobalShadows = false
+    else
+        RestoreLighting()
+    end
+end
+
+local function ToggleNoFog(state)
+    config.NoFog = state
+    if state then
+        SaveLighting()
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+    else
+        RestoreLighting()
+    end
+end
+
+-- ============================================
+-- FPS LOCK / ОПТИМИЗАЦИЯ / РАСТЯГ
+-- ============================================
+local originalFOV = nil
+
+local function ApplyFPS(fps)
+    config.FPS = fps
+    pcall(function()
+        if setfpscap then setfpscap(fps) end
+    end)
+end
+
+local function ApplyOptimization()
+    pcall(function()
+        for _, v in ipairs(Workspace:GetDescendants()) do
+            if v:IsA("Decal") or v:IsA("Texture") then
+                v.Transparency = 1
+            elseif v:IsA("MeshPart") then
+                v.RenderFidelity = Enum.RenderFidelity.Performance
+            end
+        end
+        Lighting.ShadowSoftness = 0
+    end)
+end
+
+local function ApplyStretch43(state)
+    config.Stretch43 = state
+    local cam = Workspace.CurrentCamera
+    if not cam then return end
+    if state then
+        if originalFOV == nil then originalFOV = cam.FieldOfView end
+        cam.FieldOfView = 100
+    else
+        if originalFOV then
+            cam.FieldOfView = originalFOV
+            originalFOV = nil
+        end
+    end
+end
+
+-- ============================================
+-- HITBOX
+-- ============================================
+local function ApplyHitbox(size)
+    config.HitboxSize = size
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.Size = Vector3.new(size, size, size)
+            end
+        end
+    end
+end
+
+Track("hitbox_update", RunService.Heartbeat:Connect(function()
+    if config.HitboxSize == 3 then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and hrp.Size.X ~= config.HitboxSize then
+                hrp.Size = Vector3.new(config.HitboxSize, config.HitboxSize, config.HitboxSize)
+            end
+        end
+    end
+end))
+
+-- ============================================
+-- SERVER HOP / REJOIN (PREMIUM)
+-- ============================================
+local function ServerHop()
+    if USER_TIER ~= "premium" then return end
+    pcall(function()
+        local req = (syn and syn.request) or (http and http.request) or http_request or request
+        if not req then return end
+        local res = req({
+            Url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+        })
+        if res and res.Body then
+            local data = HttpService:JSONDecode(res.Body)
+            for _, srv in ipairs(data.data) do
+                if srv.playing < srv.maxPlayers and srv.id ~= game.JobId then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, srv.id, LocalPlayer)
+                    return
+                end
+            end
+        end
+    end)
+end
+
+local function Rejoin()
+    if USER_TIER ~= "premium" then return end
+    pcall(function()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end)
+end
+
+-- ============================================
+-- СНЕГ
+-- ============================================
+local function CreateSnow(parent)
+    for i = 1, 25 do
+        local sf = Instance.new("Frame")
+        sf.Size = UDim2.new(0, math.random(2, 4), 0, math.random(2, 4))
+        sf.Position = UDim2.new(math.random(), 0, math.random() - 1, 0)
+        sf.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        sf.BackgroundTransparency = math.random(30, 70)/100
+        sf.BorderSizePixel = 0
+        sf.ZIndex = 10
+        sf.Parent = parent
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(1, 0)
+        c.Parent = sf
+        table.insert(snowflakes, {
+            frame = sf,
+            speed = math.random(60, 160),
+            drift = math.random(-20, 20)
+        })
+    end
+end
+
+Track("snow_anim", RunService.RenderStepped:Connect(function(dt)
+    for _, snow in ipairs(snowflakes) do
+        if snow.frame and snow.frame.Parent then
+            local pos = snow.frame.Position
+            local newY = pos.Y.Scale + snow.speed * dt * 0.01            local newX = pos.X.Scale + snow.drift * dt * 0.001
+            if newY > 1 then newY = -0.05; newX = math.random() end
+            if newX > 1 then newX = 0 end
+            if newX < 0 then newX = 1 end
+            snow.frame.Position = UDim2.new(newX, 0, newY, 0)
+        end
+    end
+end))
+
+-- ============================================
+-- HUD КНОПКИ У ЦЕНТРА
+-- ============================================
+local function CreateHudButtons()
+    if hudGui then hudGui:Destroy() end
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "RbxHud_" .. tostring(math.random(100000, 999999))
+    gui.Parent = CoreGui
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    ProtectGui(gui)
+    hudGui = gui
+
+    local function CreateBtn(name, text, defaultX, defaultY, color, callback)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(0, 60, 0, 60)
+        btn.Position = UDim2.new(0.5, defaultX, 0.5, defaultY)
+        btn.BackgroundColor3 = color
+        btn.BackgroundTransparency = 0.15
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 10
+        btn.Font = Enum.Font.GothamBold
+        btn.TextWrapped = true
+        btn.ZIndex = 300
+        btn.Active = true
+        btn.Parent = gui
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 12)
+        corner.Parent = btn
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(200, 220, 255)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.4
+        stroke.Parent = btn
+
+        local state = false
+        local isDragging = false
+        local dragStart, startPos
+        local moved = false
+
+        btn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 
+               or input.UserInputType == Enum.UserInputType.Touch then
+                isDragging = true
+                moved = false
+                dragStart = input.Position
+                startPos = btn.Position
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement 
+               or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStart
+                if delta.Magnitude > 5 then
+                    moved = true
+                    btn.Position = UDim2.new(
+                        startPos.X.Scale, startPos.X.Offset + delta.X,
+                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                    )
+                end
+            end
+        end)
+
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 
+               or input.UserInputType == Enum.UserInputType.Touch then
+                if isDragging then
+                    if not moved then
+                        state = not state
+                        btn.BackgroundColor3 = state and Color3.fromRGB(0, 200, 80) or color
+                        callback(state)
+                    end
+                    isDragging = false
+                end
+            end
+        end)
+
+        return btn
+    end
+
+    local offsetX = 80
+    local startY = -180
+    local spacing = 70
+    local isPremium = (USER_TIER == "premium")
+
+    CreateBtn("BtnAim", "AIM", offsetX, startY + spacing * 0, Color3.fromRGB(180, 30, 30), ToggleAimBot)
+    CreateBtn("BtnESP", "ESP", offsetX, startY + spacing * 1, Color3.fromRGB(30, 100, 180), ToggleESP)
+    CreateBtn("BtnPull", "ПРИТЯН", offsetX, startY + spacing * 2, Color3.fromRGB(180, 100, 30), TogglePull)
+    CreateBtn("BtnFly", "ФЛЮ", offsetX, startY + spacing * 3, Color3.fromRGB(100, 60, 180), ToggleInfiniteJump)
+    CreateBtn("BtnAttack", "АТАКА", offsetX, startY + spacing * 4, Color3.fromRGB(200, 60, 60), ToggleAutoAttack)
+end
+
+-- ============================================
+-- ГЛАВНОЕ МЕНЮ
+-- ============================================
+local function CreateHub()
+    for _, child in ipairs(CoreGui:GetChildren()) do
+        if child.Name == "KABAN_HUB" then child:Destroy() end
+    end
+    snowflakes = {}
+
+    local isPremium = (USER_TIER == "premium")
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "RbxOverlay_" .. tostring(math.random(100000, 999999))
+    ScreenGui.Parent = CoreGui
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.IgnoreGuiInset = true
+    ProtectGui(ScreenGui)
+
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 480, 0, 650)
+    MainFrame.Position = UDim2.new(0.5, -240, 0.5, -325)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(10, 15, 30)
+    MainFrame.BackgroundTransparency = 0.1
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.ClipsDescendants = true
+    MainFrame.Parent = ScreenGui
+
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 16)
+    MainCorner.Parent = MainFrame
+
+    local MainStroke = Instance.new("UIStroke")
+    MainStroke.Color = isPremium and Color3.fromRGB(255, 120, 120) or Color3.fromRGB(150, 200, 255)
+    MainStroke.Thickness = 2
+    MainStroke.Transparency = 0.2
+    MainStroke.Parent = MainFrame
+
+    CreateSnow(MainFrame)
+
+    -- ЗАГОЛОВОК
+    local TitleBar = Instance.new("Frame")
+    TitleBar.Size = UDim2.new(1, 0, 0, 50)
+    TitleBar.BackgroundColor3 = Color3.fromRGB(20, 35, 65)
+    TitleBar.BackgroundTransparency = 0.2
+    TitleBar.BorderSizePixel = 0
+    TitleBar.ZIndex = 100
+    TitleBar.Parent = MainFrame
+
+    local TitleCorner = Instance.new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 16)
+    TitleCorner.Parent = TitleBar
+
+    local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Size = UDim2.new(1, -280, 1, 0)
+    TitleLabel.Position = UDim2.new(0, 15, 0, 0)
+    TitleLabel.BackgroundTransparency = 1
+    TitleLabel.Text = SCRIPT_NAME
+    TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    TitleLabel.TextSize = 16
+    TitleLabel.Font = Enum.Font.GothamBold
+    TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    TitleLabel.ZIndex = 101
+    TitleLabel.Parent = TitleBar
+
+    local tierBadge = Instance.new("TextLabel")
+    tierBadge.Size = UDim2.new(0, 80, 0, 22)
+    tierBadge.Position = UDim2.new(1, -180, 0.5, -11)
+    tierBadge.BackgroundColor3 = isPremium and Color3.fromRGB(180, 40, 40) or Color3.fromRGB(0, 150, 80)
+    tierBadge.BackgroundTransparency = 0.2
+    tierBadge.Text = isPremium and "PREMIUM" or "BASIC"
+    tierBadge.TextColor3 = Color3.fromRGB(255, 255, 255)
+    tierBadge.TextSize = 11
+    tierBadge.Font = Enum.Font.GothamBold
+    tierBadge.ZIndex = 101
+    tierBadge.Parent = TitleBar
+
+    local tierCorner = Instance.new("UICorner")
+    tierCorner.CornerRadius = UDim.new(0, 6)
+    tierCorner.Parent = tierBadge
+
+    local MinimizeBtn = Instance.new("TextButton")
+    MinimizeBtn.Size = UDim2.new(0, 32, 0, 32)
+    MinimizeBtn.Position = UDim2.new(1, -72, 0, 9)
+    MinimizeBtn.BackgroundColor3 = Color3.fromRGB(80, 120, 170)
+    MinimizeBtn.BackgroundTransparency = 0.3
+    MinimizeBtn.Text = "—"
+    MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    MinimizeBtn.TextSize = 18
+    MinimizeBtn.Font = Enum.Font.GothamBold
+    MinimizeBtn.ZIndex = 101
+    MinimizeBtn.Parent = TitleBar
+
+    local MinCorner = Instance.new("UICorner")
+    MinCorner.CornerRadius = UDim.new(0, 8)
+    MinCorner.Parent = MinimizeBtn
+
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 32, 0, 32)
+    CloseBtn.Position = UDim2.new(1, -36, 0, 9)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    CloseBtn.BackgroundTransparency = 0.3
+    CloseBtn.Text = "✕"
+    CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CloseBtn.TextSize = 16
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.ZIndex = 101
+    CloseBtn.Parent = TitleBar
+
+    local CloseCorner = Instance.new("UICorner")
+    CloseCorner.CornerRadius = UDim.new(0, 8)
+    CloseCorner.Parent = CloseBtn
+
+    CloseBtn.MouseButton1Click:Connect(function()
+        if config.AimBot then ToggleAimBot(false) end
+        if config.ESP then ToggleESP(false) end
+        if config.Pull then TogglePull(false) end
+        if config.Fly then ToggleInfiniteJump(false) end
+        if config.AutoAttack then ToggleAutoAttack(false) end
+        if config.Speed then ToggleSpeed(false) end
+        if config.Jump then ToggleJump(false) end
+        if config.XRay then ApplyXRay(false) end
+        if config.BrainrotESP then ToggleBrainrotESP(false) end
+        if config.TrapESP then ToggleTrapESP(false) end
+        if config.PlayerTracker then TogglePlayerTracker(false) end
+        if config.Crosshair then ToggleCrosshair(false) end
+        if config.KillFeed then ToggleKillFeed(false) end
+        if config.AntiFling then ToggleAntiFling(false) end
+        if fovCircle then fovCircle.gui:Destroy() end
+        if hudGui then hudGui:Destroy() end
+        DisconnectAll()
+        snowflakes = {}
+        ScreenGui:Destroy()
+    end)
+
+    local ContentFrame = Instance.new("Frame")
+    ContentFrame.Size = UDim2.new(1, -20, 1, -70)
+    ContentFrame.Position = UDim2.new(0, 10, 0, 60)
+    ContentFrame.BackgroundTransparency = 1
+    ContentFrame.ZIndex = 100
+    ContentFrame.Parent = MainFrame
+
+    -- ВКЛАДКИ
+    local TabBar = Instance.new("Frame")
+    TabBar.Size = UDim2.new(1, 0, 0, 30)
+    TabBar.BackgroundTransparency = 1
+    TabBar.ZIndex = 101
+    TabBar.Parent = ContentFrame
+
+    local MainSlide = Instance.new("ScrollingFrame")
+    MainSlide.Size = UDim2.new(1, 0, 1, -40)
+    MainSlide.Position = UDim2.new(0, 0, 0, 35)
+    MainSlide.BackgroundTransparency = 1
+    MainSlide.CanvasSize = UDim2.new(0, 0, 0, 500)
+    MainSlide.ScrollBarThickness = 4
+    MainSlide.ZIndex = 101
+    MainSlide.Visible = true
+    MainSlide.Parent = ContentFrame
+
+    local VisualSlide = Instance.new("ScrollingFrame")
+    VisualSlide.Size = UDim2.new(1, 0, 1, -40)
+    VisualSlide.Position = UDim2.new(0, 0, 0, 35)
+    VisualSlide.BackgroundTransparency = 1
+    VisualSlide.CanvasSize = UDim2.new(0, 0, 0, 500)
+    VisualSlide.ScrollBarThickness = 4
+    VisualSlide.ZIndex = 101
+    VisualSlide.Visible = false
+    VisualSlide.Parent = ContentFrame
+
+    local PremiumSlide = Instance.new("ScrollingFrame")
+    PremiumSlide.Size = UDim2.new(1, 0, 1, -40)
+    PremiumSlide.Position = UDim2.new(0, 0, 0, 35)
+    PremiumSlide.BackgroundTransparency = 1
+    PremiumSlide.CanvasSize = UDim2.new(0, 0, 0, 500)
+    PremiumSlide.ScrollBarThickness = 4
+    PremiumSlide.ZIndex = 101
+    PremiumSlide.Visible = false
+    PremiumSlide.Parent = ContentFrame
+
+    local tabs = {}
+    local function CreateTab(name, x)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.32, -2, 1, 0)
+        btn.Position = UDim2.new(x, 0, 0, 0)
+        btn.BackgroundColor3 = (name == "Main") and Color3.fromRGB(60, 100, 180) or Color3.fromRGB(30, 50, 80)
+        btn.BackgroundTransparency = 0.2
+        btn.Text = name
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 12
+        btn.Font = Enum.Font.GothamBold
+        btn.ZIndex = 102
+        btn.Parent = TabBar
+        table.insert(tabs, btn)
+
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 6)
+        c.Parent = btn
+
+        btn.MouseButton1Click:Connect(function()
+            MainSlide.Visible = (name == "Main")
+            VisualSlide.Visible = (name == "Visual")
+            PremiumSlide.Visible = (name == "Premium")
+            for _, b in ipairs(tabs) do
+                b.BackgroundColor3 = (b.Text == name) and Color3.fromRGB(60, 100, 180) or Color3.fromRGB(30, 50, 80)
+            end
+        end)
+    end
+
+    CreateTab("Main", 0)
+    CreateTab("Visual", 0.34)
+    CreateTab("Premium", 0.68)
+
+    -- Слайдер
+    local function CreateSlider(name, parent, x, y, min, max, default, callback)
+        local container = Instance.new("Frame")
+        container.Size = UDim2.new(0.48, 0, 0, 45)
+        container.Position = UDim2.new(x, 0, 0, y)
+        container.BackgroundTransparency = 1
+        container.ZIndex = 102
+        container.Parent = parent
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 0, 18)
+        label.BackgroundTransparency = 1
+        label.Text = name .. ": " .. default
+        label.TextColor3 = Color3.fromRGB(220, 240, 255)
+        label.TextSize = 11
+        label.Font = Enum.Font.GothamBold
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.ZIndex = 103
+        label.Parent = container
+
+        local bar = Instance.new("TextButton")
+        bar.Size = UDim2.new(1, 0, 0, 18)
+        bar.Position = UDim2.new(0, 0, 0, 20)
+        bar.BackgroundColor3 = Color3.fromRGB(40, 60, 90)
+        bar.Text = ""
+        bar.ZIndex = 103
+        bar.Parent = container
+
+        local barCorner = Instance.new("UICorner")
+        barCorner.CornerRadius = UDim.new(0, 5)
+        barCorner.Parent = bar
+
+        local fill = Instance.new("Frame")
+        local initPercent = (default - min) / (max - min)
+        fill.Size = UDim2.new(initPercent, 0, 1, 0)
+        fill.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+        fill.BorderSizePixel = 0
+        fill.ZIndex = 104
+        fill.Parent = bar
+
+        local fillCorner = Instance.new("UICorner")
+        fillCorner.CornerRadius = UDim.new(0, 5)
+        fillCorner.Parent = fill
+
+        local active = false
+        local function Update(x)
+            local percent = math.clamp(x / bar.AbsoluteSize.X, 0, 1)
+            local value = math.floor(min + percent * (max - min))
+            fill.Size = UDim2.new(percent, 0, 1, 0)
+            label.Text = name .. ": " .. value
+            callback(value)
+        end
+
+        bar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                active = true
+                Update(input.Position.X - bar.AbsolutePosition.X)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if active and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                Update(input.Position.X - bar.AbsolutePosition.X)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                active = false
+            end
+        end)
+    end
+
+    -- Toggle
+    local function CreateToggle(name, parent, x, y, callback, isPremiumOnly)
+        if isPremiumOnly and not isPremium then
+            local locked = Instance.new("TextLabel")
+            locked.Size = UDim2.new(0.48, 0, 0, 45)
+            locked.Position = UDim2.new(x, 0, 0, y)
+            locked.BackgroundColor3 = Color3.fromRGB(40, 30, 30)
+            locked.BackgroundTransparency = 0.5
+            locked.Text = "🔒 " .. name .. "\n(PREMIUM)"
+            locked.TextColor3 = Color3.fromRGB(255, 150, 150)
+            locked.TextSize = 10
+            locked.Font = Enum.Font.GothamBold
+            locked.ZIndex = 102
+            locked.Parent = parent
+            local c = Instance.new("UICorner")
+            c.CornerRadius = UDim.new(0, 10)
+            c.Parent = locked
+            return
+        end
+
+        local container = Instance.new("Frame")
+        container.Size = UDim2.new(0.48, 0, 0, 45)
+        container.Position = UDim2.new(x, 0, 0, y)
+        container.BackgroundColor3 = Color3.fromRGB(20, 35, 65)
+        container.BackgroundTransparency = 0.2
+        container.BorderSizePixel = 0
+        container.ZIndex = 102
+        container.Parent = parent
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = container
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(120, 170, 220)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.5
+        stroke.Parent = container
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(0.6, 0, 1, 0)
+        label.Position = UDim2.new(0, 10, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = name
+        label.TextColor3 = Color3.fromRGB(230, 245, 255)
+        label.TextSize = 11
+        label.Font = Enum.Font.GothamBold
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.ZIndex = 103
+        label.Parent = container
+
+        local toggleBg = Instance.new("Frame")
+        toggleBg.Size = UDim2.new(0, 40, 0, 20)
+        toggleBg.Position = UDim2.new(1, -50, 0.5, -10)
+        toggleBg.BackgroundColor3 = Color3.fromRGB(50, 70, 100)
+        toggleBg.BorderSizePixel = 0
+        toggleBg.ZIndex = 103
+        toggleBg.Parent = container
+
+        local toggleCorner = Instance.new("UICorner")
+        toggleCorner.CornerRadius = UDim.new(0, 10)
+        toggleCorner.Parent = toggleBg
+
+        local toggleCircle = Instance.new("Frame")
+        toggleCircle.Size = UDim2.new(0, 16, 0, 16)
+        toggleCircle.Position = UDim2.new(0, 2, 0.5, -8)
+        toggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        toggleCircle.BorderSizePixel = 0
+        toggleCircle.ZIndex = 104
+        toggleCircle.Parent = toggleBg
+
+        local circleCorner = Instance.new("UICorner")
+        circleCorner.CornerRadius = UDim.new(1, 0)
+        circleCorner.Parent = toggleCircle
+
+        local state = false
+        local function UpdateVisual()
+            if state then
+                toggleBg.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+                toggleCircle.Position = UDim2.new(1, -18, 0.5, -8)
+                stroke.Color = Color3.fromRGB(0, 255, 150)
+            else
+                toggleBg.BackgroundColor3 = Color3.fromRGB(50, 70, 100)
+                toggleCircle.Position = UDim2.new(0, 2, 0.5, -8)
+                stroke.Color = Color3.fromRGB(120, 170, 220)
+            end
+        end
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundTransparency = 1
+        btn.Text = ""
+        btn.ZIndex = 105
+        btn.Parent = container
+
+        btn.MouseButton1Click:Connect(function()
+            state = not state
+            UpdateVisual()
+            callback(state)
+        end)
+
+        UpdateVisual()
+    end
+
+    -- Кнопка
+    local function CreateButton(name, parent, x, y, color, callback, isPremiumOnly)
+        if isPremiumOnly and not isPremium then
+            local locked = Instance.new("TextButton")
+            locked.Size = UDim2.new(0.48, 0, 0, 35)
+            locked.Position = UDim2.new(x, 0, 0, y)
+            locked.BackgroundColor3 = Color3.fromRGB(40, 30, 30)
+            locked.BackgroundTransparency = 0.5
+            locked.Text = "🔒 " .. name
+            locked.TextColor3 = Color3.fromRGB(255, 150, 150)
+            locked.TextSize = 10
+            locked.Font = Enum.Font.GothamBold
+            locked.ZIndex = 102
+            locked.Parent = parent
+            local c = Instance.new("UICorner")
+            c.CornerRadius = UDim.new(0, 10)
+            c.Parent = locked
+            return
+        end
+
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.48, 0, 0, 35)
+        btn.Position = UDim2.new(x, 0, 0, y)
+        btn.BackgroundColor3 = color or Color3.fromRGB(50, 80, 140)
+        btn.BackgroundTransparency = 0.2
+        btn.Text = name
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 11
+        btn.Font = Enum.Font.GothamBold
+        btn.ZIndex = 102
+        btn.Parent = parent
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = btn
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(120, 170, 220)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.4
+        stroke.Parent = btn
+
+        btn.MouseButton1Click:Connect(callback)
+        return btn
+    end
+
+    -- ===== MAIN ВКЛАДКА =====
+    local y = 0
+    CreateToggle("ESP (Roles)", MainSlide, 0, y, ToggleESP)
+    CreateToggle("SPEED", MainSlide, 0.52, y, ToggleSpeed)
+    y = y + 50
+    CreateToggle("JUMP", MainSlide, 0, y, ToggleJump)
+    CreateToggle("ФЛЮ", MainSlide, 0.52, y, ToggleInfiniteJump)
+    y = y + 50
+    CreateToggle("FULLBRIGHT", MainSlide, 0, y, ToggleFullbright)
+    CreateToggle("NO FOG", MainSlide, 0.52, y, ToggleNoFog)
+    y = y + 50
+    CreateSlider("SPEED VAL", MainSlide, 0, y, 16, 100, 30, function(v) config.SpeedValue = v end)
+    CreateSlider("JUMP VAL", MainSlide, 0.52, y, 50, 300, 80, function(v) config.JumpPower = v end)
+    y = y + 50
+    CreateSlider("ФЛЮ СИЛА", MainSlide, 0, y, 20, 100, 40, function(v) config.FlyPower = v end)
+    CreateSlider("ФЛЮ СКОРОСТЬ", MainSlide, 0.52, y, 5, 20, 7, function(v) config.FlyCooldown = 1/v end)
+    y = y + 50
+    CreateSlider("ХИТБОКС", MainSlide, 0, y, 1, 15, 3, function(v) ApplyHitbox(v) end)
+
+    -- ===== VISUAL ВКЛАДКА =====
+    local vy = 0
+    local fpsTitle = Instance.new("TextLabel")
+    fpsTitle.Size = UDim2.new(1, 0, 0, 18)
+    fpsTitle.Position = UDim2.new(0, 0, 0, vy)
+    fpsTitle.BackgroundTransparency = 1
+    fpsTitle.Text = "FPS LOCK"
+    fpsTitle.TextColor3 = Color3.fromRGB(180, 220, 255)
+    fpsTitle.TextSize = 11
+    fpsTitle.Font = Enum.Font.GothamBold
+    fpsTitle.TextXAlignment = Enum.TextXAlignment.Left
+    fpsTitle.ZIndex = 102
+    fpsTitle.Parent = VisualSlide
+    vy = vy + 22
+
+    for i, fps in ipairs({30, 60, 90, 120, 240}) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.18, 0, 0, 32)
+        btn.Position = UDim2.new((i-1)*0.20, 0, 0, vy)
+        btn.BackgroundColor3 = (fps == 60) and Color3.fromRGB(0, 180, 80) or Color3.fromRGB(30, 50, 80)
+        btn.BackgroundTransparency = 0.2
+        btn.Text = fps .. " FPS"
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 10
+        btn.Font = Enum.Font.GothamBold
+        btn.ZIndex = 102
+        btn.Parent = VisualSlide
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 8)
+        c.Parent = btn
+        btn.MouseButton1Click:Connect(function()
+            ApplyFPS(fps)
+        end)
+    end
+    vy = vy + 40
+
+    CreateButton("⚡ ОПТИМИЗАЦИЯ", VisualSlide, 0, vy, Color3.fromRGB(200, 100, 0), ApplyOptimization)
+    CreateToggle("РАСТЯГ 4:3", VisualSlide, 0.52, vy, ApplyStretch43)
+    vy = vy + 45
+
+    CreateToggle("CROSSHAIR", VisualSlide, 0, vy, ToggleCrosshair, true)
+    CreateToggle("KILL FEED", VisualSlide, 0.52, vy, ToggleKillFeed, true)
+    vy = vy + 50
+
+    -- ===== PREMIUM ВКЛАДКА =====
+    local py = 0
+    if not isPremium then
+        local lockMsg = Instance.new("TextLabel")
+        lockMsg.Size = UDim2.new(1, 0, 0, 60)
+        lockMsg.Position = UDim2.new(0, 0, 0, py)
+        lockMsg.BackgroundColor3 = Color3.fromRGB(60, 20, 20)
+        lockMsg.BackgroundTransparency = 0.5
+        lockMsg.Text = "🔒 PREMIUM ТАРИФ\n\nВведи ключ KabanPrem для доступа к\nAimBot, X-Ray, AutoFarm и другим"
+        lockMsg.TextColor3 = Color3.fromRGB(255, 200, 200)
+        lockMsg.TextSize = 11
+        lockMsg.Font = Enum.Font.GothamBold
+        lockMsg.ZIndex = 102
+        lockMsg.Parent = PremiumSlide
+        local c = Instance.new("UICorner")
+        c.CornerRadius = UDim.new(0, 10)
+        c.Parent = lockMsg
+        py = py + 70
+    end
+
+    CreateToggle("AIMBOT", PremiumSlide, 0, py, ToggleAimBot, true)
+    CreateToggle("SHOW FOV", PremiumSlide, 0.52, py, function(state)
+        config.ShowFOVCircle = state
+        UpdateFOVCircle()
+    end, true)
+    py = py + 50
+
+    CreateSlider("FOV RADIUS", PremiumSlide, 0, py, 30, 500, 120, function(v)
+        config.AimFOV = v
+        UpdateFOVCircle()
+    end)
+    CreateSlider("РЕЗКОСТЬ", PremiumSlide, 0.52, py, 1, 100, 30, function(v)
+        config.AimSmooth = v / 100
+    end)
+    py = py + 50
+
+    CreateToggle("ПРИТЯН", PremiumSlide, 0, py, TogglePull, true)
+    CreateToggle("АТАКА", PremiumSlide, 0.52, py, ToggleAutoAttack, true)
+    py = py + 50
+
+    CreateToggle("X-RAY", PremiumSlide, 0, py, ApplyXRay, true)
+    CreateToggle("BRAINROT ESP", PremiumSlide, 0.52, py, ToggleBrainrotESP, true)
+    py = py + 50
+
+    CreateToggle("TRAP ESP", PremiumSlide, 0, py, ToggleTrapESP, true)
+    CreateToggle("PLAYER TRACKER", PremiumSlide, 0.52, py, TogglePlayerTracker, true)
+    py = py + 50
+
+    CreateToggle("ANTI-FLING", PremiumSlide, 0, py, ToggleAntiFling, true)
+    CreateToggle("CHAT SPAM", PremiumSlide, 0.52, py, function(state)
+        config.ChatSpam = state
+        if state then
+            task.spawn(function()
+                while config.ChatSpam do
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer("KABAN HUB ON TOP", "All")
+                    end)
+                    task.wait(5)
+                end
+            end)
+        end
+    end, true)
+    py = py + 50
+
+    CreateButton("SERVER HOP", PremiumSlide, 0, py, Color3.fromRGB(180, 60, 60), ServerHop, true)
+    CreateButton("REJOIN", PremiumSlide, 0.52, py, Color3.fromRGB(80, 120, 180), Rejoin, true)
+
+    -- ПЕРЕТАСКИВАНИЕ
+    local dragging = false
+    local dragStart, startPos
+    local function StartDrag(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = MainFrame.Position
+        end
+    end
+    MainFrame.InputBegan:Connect(StartDrag)
+    TitleBar.InputBegan:Connect(StartDrag)
+
+    Track("drag_move", UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end))
+    Track("drag_end", UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end))
+
+    -- СВОРАЧИВАНИЕ
+    local restoreBtn = nil
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        if isMinimized then return end
+        isMinimized = true
+        MainFrame.Size = UDim2.new(0, 50, 0, 50)
+        TitleBar.Visible = false
+        ContentFrame.Visible = false
+
+        restoreBtn = Instance.new("TextButton")
+        restoreBtn.Size = UDim2.new(1, 0, 1, 0)
+        restoreBtn.BackgroundColor3 = isPremium and Color3.fromRGB(180, 60, 60) or Color3.fromRGB(60, 100, 180)
+        restoreBtn.Text = "K"
+        restoreBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        restoreBtn.TextSize = 22
+        restoreBtn.Font = Enum.Font.GothamBold
+        restoreBtn.ZIndex = 200
+        restoreBtn.Parent = MainFrame
+
+        local rc = Instance.new("UICorner")
+        rc.CornerRadius = UDim.new(0, 16)
+        rc.Parent = restoreBtn
+
+        restoreBtn.MouseButton1Click:Connect(function()
+            isMinimized = false
+            MainFrame.Size = UDim2.new(0, 480, 0, 650)
+            TitleBar.Visible = true
+            ContentFrame.Visible = true
+            restoreBtn:Destroy()
+            restoreBtn = nil
+        end)
+    end)
+
+    print("[KABAN] HUB v10.0 загружен! Тариф: " .. USER_TIER)
+end
+
+-- ============================================
+-- ОКНО КЛЮЧА
+-- ============================================
+local function CreateKeyGUI(onSuccess)
+    for _, child in ipairs(CoreGui:GetChildren()) do
+        if child.Name == "KABAN_KEY" then child:Destroy() end
+    end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "RbxKey_" .. tostring(math.random(100000, 999999))
+    screenGui.Parent = CoreGui
+    screenGui.ResetOnSpawn = false
+    ProtectGui(screenGui)
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 400, 0, 280)
+    frame.Position = UDim2.new(0.5, -200, 0.5, -140)
+    frame.BackgroundColor3 = Color3.fromRGB(15, 20, 35)
+    frame.BackgroundTransparency = 0.05
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.ClipsDescendants = true
+    frame.Parent = screenGui
+
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 16)
+    frameCorner.Parent = frame
+
+    local frameStroke = Instance.new("UIStroke")
+    frameStroke.Color = Color3.fromRGB(150, 200, 240)
+    frameStroke.Thickness = 2
+    frameStroke.Transparency = 0.2
+    frameStroke.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 50)
+    title.BackgroundTransparency = 1
+    title.Text = "🔑 " .. SCRIPT_NAME
+    title.TextColor3 = Color3.fromRGB(220, 240, 255)
+    title.TextSize = 18
+    title.Font = Enum.Font.GothamBold
+    title.Parent = frame
+
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Size = UDim2.new(1, -40, 0, 22)
+    subtitle.Position = UDim2.new(0, 20, 0, 55)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = "Введите ключ"
+    subtitle.TextColor3 = Color3.fromRGB(180, 200, 220)
+    subtitle.TextSize = 13
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.Parent = frame
+
+    local tierInfo = Instance.new("TextLabel")
+    tierInfo.Size = UDim2.new(1, -40, 0, 25)
+    tierInfo.Position = UDim2.new(0, 20, 0, 78)
+    tierInfo.BackgroundTransparency = 1
+    tierInfo.Text = "🟢 BASIC: KabanTest  |  🔴 PREMIUM: KabanPrem"
+    tierInfo.TextColor3 = Color3.fromRGB(150, 180, 220)
+    tierInfo.TextSize = 10
+    tierInfo.Font = Enum.Font.GothamBold
+    tierInfo.Parent = frame
+
+    local inputFrame = Instance.new("Frame")
+    inputFrame.Size = UDim2.new(1, -40, 0, 45)
+    inputFrame.Position = UDim2.new(0, 20, 0, 110)
+    inputFrame.BackgroundColor3 = Color3.fromRGB(25, 35, 55)
+    inputFrame.BorderSizePixel = 0
+    inputFrame.Parent = frame
+
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 10)
+    inputCorner.Parent = inputFrame
+
+    local textBox = Instance.new("TextBox")
+    textBox.Size = UDim2.new(1, -20, 1, 0)
+    textBox.Position = UDim2.new(0, 10, 0, 0)
+    textBox.BackgroundTransparency = 1
+    textBox.Text = ""
+    textBox.PlaceholderText = "Введите ключ..."
+    textBox.PlaceholderColor3 = Color3.fromRGB(100, 120, 150)
+    textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    textBox.TextSize = 16
+    textBox.Font = Enum.Font.Gotham
+    textBox.ClearTextOnFocus = false
+    textBox.Parent = inputFrame
+
+    local submitBtn = Instance.new("TextButton")
+    submitBtn.Size = UDim2.new(1, -40, 0, 45)
+    submitBtn.Position = UDim2.new(0, 20, 0, 170)
+    submitBtn.BackgroundColor3 = Color3.fromRGB(60, 100, 180)
+    submitBtn.BackgroundTransparency = 0.15
+    submitBtn.Text = "🔓 АКТИВИРОВАТЬ"
+    submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    submitBtn.TextSize = 16
+    submitBtn.Font = Enum.Font.GothamBold
+    submitBtn.Parent = frame
+
+    local submitCorner = Instance.new("UICorner")
+    submitCorner.CornerRadius = UDim.new(0, 10)
+    submitCorner.Parent = submitBtn
+
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, -40, 0, 25)
+    statusLabel.Position = UDim2.new(0, 20, 0, 225)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = ""
+    statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    statusLabel.TextSize = 13
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.Parent = frame
+
+    submitBtn.MouseButton1Click:Connect(function()
+        local key = textBox.Text
+        if key == "" then
+            statusLabel.Text = "❌ Введите ключ!"
+            return
+        end
+
+        local matched = false
+        if key == BASIC_KEY then
+            USER_TIER = "basic"
+            matched = true
+        elseif key == PREMIUM_KEY then
+            USER_TIER = "premium"
+            matched = true
+        end
+
+        if matched then
+            local isPrem = (USER_TIER == "premium")
+            statusLabel.Text = isPrem and "✅ PREMIUM! Загрузка..." or "✅ BASIC! Загрузка..."
+            statusLabel.TextColor3 = isPrem and Color3.fromRGB(255, 120, 120) or Color3.fromRGB(100, 255, 150)
+            submitBtn.BackgroundColor3 = isPrem and Color3.fromRGB(180, 60, 60) or Color3.fromRGB(0, 180, 80)
+            submitBtn.Text = isPrem and "✅ PREMIUM" or "✅ BASIC"
+            task.delay(1, function()
+                screenGui:Destroy()
+                onSuccess()
+            end)
+        else
+            statusLabel.Text = "❌ Неверный ключ!"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            textBox.Text = ""
+        end
+    end)
+
+    textBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then submitBtn:Activate() end
+    end)
+end
+
+-- ============================================
+-- ЗАПУСК
+-- ============================================
+CreateKeyGUI(function()
+    CreateHub()
+    CreateFOVCircle()
+    UpdateFOVCircle()
+    CreateHudButtons()
+end)
